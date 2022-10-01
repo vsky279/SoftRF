@@ -1,3 +1,12 @@
+// BLERemoteCharacteristic.cpp
+// BLEClient.cpp 
+
+//	if (errRc != ESP_OK) {
+//		log_e(...);
+// +        m_semaphoreWriteCharEvt.timedWait("writeValue", 100);
+//		return;
+//	}
+
 /*
  * BluetoothHelper.cpp
  * Copyright (C) 2018-2023 Linar Yusupov
@@ -21,6 +30,10 @@
 #endif
 
 #if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32S2)
+#include "../system/SoC.h"
+#include "EEPROM.h"
+#include "Bluetooth.h"
+#include "esp_task_wdt.h"
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled!
@@ -61,11 +74,18 @@ BLECharacteristic* pManufacturerCharacteristic  = NULL;
 bool deviceConnected    = false;
 bool oldDeviceConnected = false;
 
+static boolean doConnect = false;
+static boolean connected = false;
+static BLEAdvertisedDevice* LXNAVDevice = NULL;
+static BLERemoteCharacteristic* LXNAVRXCharacteristic = NULL;
+static BLERemoteCharacteristic* LXNAVTXCharacteristic = NULL;
+
 #if defined(USE_BLE_MIDI)
 BLECharacteristic* pMIDICharacteristic = NULL;
 #endif /* USE_BLE_MIDI */
 
 cbuf *BLE_FIFO_RX, *BLE_FIFO_TX;
+cbuf *LXNAV_FIFO_RX = NULL; //*LXNAV_FIFO_TX = NULL;
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
 #include <BluetoothSerial.h>
@@ -74,6 +94,7 @@ BluetoothSerial SerialBT;
 
 String BT_name = HOSTNAME;
 
+static unsigned long Discovery_TimeMarker = 0;
 static unsigned long BLE_Notify_TimeMarker = 0;
 static unsigned long BLE_Advertising_TimeMarker = 0;
 
@@ -106,6 +127,135 @@ class UARTCallbacks: public BLECharacteristicCallbacks {
     }
 };
 
+#if !defined(CONFIG_IDF_TARGET_ESP32S3)
+void SerialBT_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param){
+  if (event == ESP_SPP_OPEN_EVT) {
+    Serial.println(F("Bluetooth conection open."));
+    deviceConnected = true;
+  } else if (event == ESP_SPP_DISCOVERY_COMP_EVT) {
+    Serial.println(F("Bluetooth discovery completed."));
+  } else if (event == ESP_SPP_CLOSE_EVT) {
+    Serial.println(F("Bluetooth connection closed."));
+    deviceConnected = false;
+  }
+}
+//esp_spp_cb_t pSerialBT_callback = &SerialBT_callback;
+#endif
+
+static void notifyCallback(
+  BLERemoteCharacteristic* pBLERemoteCharacteristic,
+  uint8_t* pData,
+  size_t length,
+  bool isNotify) {
+    // Serial.print(">>> Notify callback for characteristic ");
+    // Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
+    // Serial.print(" of data length ");
+    // Serial.println(length);
+    // pData[length] = '\0';
+    // Serial.println((char*)pData);
+
+
+    LXNAV_FIFO_RX->write((const char*)pData,
+              (LXNAV_FIFO_RX->room() > length ?
+              length : LXNAV_FIFO_RX->room()));
+    // Serial.println("<<< notifyCallback");
+}
+
+class MyClientCallback : public BLEClientCallbacks {
+  void onConnect(BLEClient* pclient) {
+  }
+
+  void onDisconnect(BLEClient* pclient) {
+    Serial.println("LXNAV disconnected");
+    connected = false;
+    delete LXNAVDevice;
+  }
+};
+
+bool connectToServer() {
+    Serial.print("Forming a connection to ");
+    Serial.println(LXNAVDevice->getAddress().toString().c_str());
+
+    BLEClient*  pClient  = BLEDevice::createClient();
+    vTaskDelay(10);
+    Serial.println(" - Created client");
+
+    pClient->setClientCallbacks(new MyClientCallback());
+
+    // Connect to the remove BLE Server.
+    if (pClient->connect(LXNAVDevice)) {  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
+        vTaskDelay(10);
+        Serial.println(" - Connected to LXNAV");
+        pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
+
+        // Obtain a reference to the service we are after in the remote BLE server.
+        BLERemoteService* pRemoteService = pClient->getService(BLEUUID(LXNAV_SERVICE_UUID));
+        vTaskDelay(10);
+        if (pRemoteService == nullptr) {
+          Serial.println("Failed to find LXNAV service UUID");
+          pClient->disconnect();
+          return false;
+        }
+        Serial.println(" - Found LXNAV service");
+
+
+        // Obtain a reference to the characteristic in the service of the remote BLE server.
+        LXNAVRXCharacteristic = pRemoteService->getCharacteristic(BLEUUID(LXNAVRX_CHARACTERISTIC_UUID));
+        vTaskDelay(10);
+        if (LXNAVRXCharacteristic == nullptr) {
+          Serial.println("Failed to find RX characteristic UUID");
+          pClient->disconnect();
+          return false;
+        }
+        Serial.println(" - Found RX characteristic");
+
+        // // Read the value of the characteristic.
+        // if(LXNAVRXCharacteristic->canRead()) {
+          // std::string value = LXNAVRXCharacteristic->readValue();
+          // Serial.print("The characteristic value was: ");
+          // Serial.println(value.c_str());
+        // }
+
+        if(LXNAVRXCharacteristic->canNotify())
+          LXNAVRXCharacteristic->registerForNotify(notifyCallback);
+
+        // Obtain a reference to the characteristic in the service of the remote BLE server.
+        LXNAVTXCharacteristic = pRemoteService->getCharacteristic(BLEUUID(LXNAVTX_CHARACTERISTIC_UUID));
+        vTaskDelay(10);
+        if (LXNAVTXCharacteristic == nullptr) {
+          Serial.println("Failed to find TX characteristic UUID");
+          pClient->disconnect();
+          return false;
+        }
+        Serial.println(" - Found TX characteristic");
+
+
+        connected = true;
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Scan for BLE servers and find the first one that advertises the service we are looking for.
+ */
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+ /**
+   * Called for each advertising BLE server.
+   */
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    // Serial.print("BLE Advertised Device found: ");
+    // Serial.println(advertisedDevice.toString().c_str());
+
+    const char* name = advertisedDevice.getName().c_str();
+    if (strcmp(name, settings->LXNAV_name)==0) {
+      BLEDevice::getScan()->stop();
+      LXNAVDevice = new BLEAdvertisedDevice(advertisedDevice);
+      doConnect = true;
+    }
+  } // onResult
+}; // MyAdvertisedDeviceCallbacks
+
 static void ESP32_Bluetooth_setup()
 {
   BT_name += "-";
@@ -113,15 +263,57 @@ static void ESP32_Bluetooth_setup()
 
   switch (settings->bluetooth)
   {
-#if defined(CONFIG_IDF_TARGET_ESP32)
-  case BLUETOOTH_SPP:
+#if !defined(CONFIG_IDF_TARGET_ESP32S3)
+  case BLUETOOTH_SPP_SLAVE:
     {
       esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
 
       SerialBT.begin(BT_name.c_str());
     }
     break;
-#endif /* CONFIG_IDF_TARGET_ESP32 */
+  case BLUETOOTH_SPP_MASTER:
+    {
+      esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
+
+      SerialBT.begin(BT_name.c_str(), true);
+      SerialBT.register_callback(SerialBT_callback);
+      SerialBT.connect(settings->LXNAV_name);
+
+      // TO BE CHANGED IN BluetoothSerial.cpp
+    // static bool waitForConnect(int timeout) {
+        // #define CYCLE 50
+        // TickType_t xTicksToWait = timeout / portTICK_PERIOD_MS / CYCLE;
+        // for (int i=0;i<xTicksToWait;i++) {
+            // if ((xEventGroupWaitBits(_spp_event_group, SPP_CONNECTED, pdFALSE, pdTRUE, CYCLE) & SPP_CONNECTED) != 0) {
+                // return 1;
+            // }
+            // esp_task_wdt_reset();
+        // }
+        // return 0;
+    // }
+
+    // static bool waitForConnect(int timeout) {
+        // #define CYCLE 50
+        // TickType_t xTicksToWait = timeout / portTICK_PERIOD_MS / CYCLE;
+        // for (int i=0;i<xTicksToWait;i++) {
+            // // wait for connected or closed
+            // EventBits_t rc = xEventGroupWaitBits(_spp_event_group, SPP_CONNECTED | SPP_CLOSED, pdFALSE, pdFALSE, CYCLE);
+            // if((rc & SPP_CONNECTED) != 0)
+                // return true;
+            // else if((rc & SPP_CLOSED) != 0) {
+                // log_d("connection closed!");
+                // return false;
+            // }
+            // esp_task_wdt_reset();
+        // }
+        // log_d("timeout");
+        // return false;
+    // }
+
+      Discovery_TimeMarker = millis();
+    }
+    break;
+#endif /* CONFIG_IDF_TARGET_ESP32S3 */
   case BLUETOOTH_LE_HM10_SERIAL:
     {
       BLE_FIFO_RX = new cbuf(BLE_FIFO_RX_SIZE);
@@ -164,7 +356,7 @@ static void ESP32_Bluetooth_setup()
       // Start the service
       pService->start();
 
-      // Create the BLE Service
+      // // Create the BLE Service
       pService = pServer->createService(BLEUUID(UUID16_SVC_BATTERY));
 
       // Create a BLE Characteristic
@@ -279,6 +471,24 @@ static void ESP32_Bluetooth_setup()
       BLEDevice::startAdvertising();
 
       BLE_Advertising_TimeMarker = millis();
+
+      if (strlen(settings->LXNAV_name)) {
+        LXNAV_FIFO_RX = new cbuf(BLE_FIFO_RX_SIZE);
+        // LXNAV_FIFO_TX = new cbuf(BLE_FIFO_TX_SIZE);
+        
+        // Retrieve a Scanner and set the callback we want to use to be informed when we
+        // have detected a new device.  Specify that we want active scanning and start the
+        // scan to run for 5 seconds.
+        Discovery_TimeMarker = millis();
+
+        BLEScan* pBLEScan = BLEDevice::getScan();
+        pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+        pBLEScan->setInterval(1349);
+        pBLEScan->setWindow(449);
+        pBLEScan->setActiveScan(true);
+        Serial.println("Starting new BLE scan");
+        pBLEScan->start(5); //, false);
+      }
     }
     break;
   case BLUETOOTH_A2DP_SOURCE:
@@ -305,17 +515,20 @@ static void ESP32_Bluetooth_loop()
       if (deviceConnected && (millis() - BLE_Notify_TimeMarker > 10)) { /* < 18000 baud */
 
           uint8_t chunk[BLE_MAX_WRITE_CHUNK_SIZE];
-          size_t size = BLE_FIFO_TX->available();
-          size = size < BLE_MAX_WRITE_CHUNK_SIZE ? size : BLE_MAX_WRITE_CHUNK_SIZE;
-
-          if (size > 0) {
+          size_t size = (BLE_FIFO_TX->available() < BLE_MAX_WRITE_CHUNK_SIZE ?
+                         BLE_FIFO_TX->available() : BLE_MAX_WRITE_CHUNK_SIZE);
+          if (size) {
             BLE_FIFO_TX->read((char *) chunk, size);
 
             pUARTCharacteristic->setValue(chunk, size);
             pUARTCharacteristic->notify();
+            
+            if (connected and size) {
+                LXNAVTXCharacteristic->writeValue (chunk, size);
+            }
+            
+            BLE_Notify_TimeMarker = millis();
           }
-
-          BLE_Notify_TimeMarker = millis();
       }
       // disconnecting
       if (!deviceConnected && oldDeviceConnected && (millis() - BLE_Advertising_TimeMarker > 500) ) {
@@ -335,10 +548,44 @@ static void ESP32_Bluetooth_loop()
         pBATCharacteristic->setValue(&battery_level, 1);
         pBATCharacteristic->notify();
       }
+
+      if (doConnect == true) {
+        if (connectToServer()) {
+          Serial.println("We are now connected to the BLE Server.");
+        } else {
+          Serial.println("We have failed to connect to the server; there is nothin more we will do.");
+        }
+        doConnect = false;
+      }
+
+      if (!connected &&
+        (LXNAVDevice || strlen(settings->LXNAV_name)) &&
+        millis() - Discovery_TimeMarker > 20e3)
+     {
+        Serial.println("Starting new BLE scan");
+        Discovery_TimeMarker = millis();
+        
+        BLEScan* pBLEScan = BLEDevice::getScan();
+        vTaskDelay(10);
+        pBLEScan->start(2);
+      }
     }
     break;
+#if !defined(CONFIG_IDF_TARGET_ESP32S3)
+  case BLUETOOTH_SPP_MASTER:
+    {
+        if (!deviceConnected && millis() - Discovery_TimeMarker > 60e3) {
+            bool zeros = true;
+            for (uint8_t i=0; i<6; i++) {zeros &= !(settings->LXNAV_name[0]);}
+            if (!zeros) {
+                Discovery_TimeMarker = millis();
+                SerialBT.connect(settings->LXNAV_name);
+            }
+        }
+    }
+#endif /* CONFIG_IDF_TARGET_ESP32S3 */
   case BLUETOOTH_NONE:
-  case BLUETOOTH_SPP:
+  case BLUETOOTH_SPP_SLAVE:
   case BLUETOOTH_A2DP_SOURCE:
   default:
     break;
@@ -356,13 +603,14 @@ static int ESP32_Bluetooth_available()
 
   switch (settings->bluetooth)
   {
-#if defined(CONFIG_IDF_TARGET_ESP32)
-  case BLUETOOTH_SPP:
+#if !defined(CONFIG_IDF_TARGET_ESP32S3)
+  case BLUETOOTH_SPP_SLAVE:
+  case BLUETOOTH_SPP_MASTER:
     rval = SerialBT.available();
     break;
 #endif /* CONFIG_IDF_TARGET_ESP32 */
   case BLUETOOTH_LE_HM10_SERIAL:
-    rval = BLE_FIFO_RX->available();
+    rval = BLE_FIFO_RX->available() || (LXNAV_FIFO_RX && LXNAV_FIFO_RX->available());
     break;
   case BLUETOOTH_NONE:
   case BLUETOOTH_A2DP_SOURCE:
@@ -379,13 +627,18 @@ static int ESP32_Bluetooth_read()
 
   switch (settings->bluetooth)
   {
-#if defined(CONFIG_IDF_TARGET_ESP32)
-  case BLUETOOTH_SPP:
+#if !defined(CONFIG_IDF_TARGET_ESP32S3)
+  case BLUETOOTH_SPP_SLAVE:
+  case BLUETOOTH_SPP_MASTER:
     rval = SerialBT.read();
     break;
 #endif /* CONFIG_IDF_TARGET_ESP32 */
   case BLUETOOTH_LE_HM10_SERIAL:
-    rval = BLE_FIFO_RX->read();
+    if (LXNAV_FIFO_RX && LXNAV_FIFO_RX->available()) {
+        rval = LXNAV_FIFO_RX->read();
+    } else {
+        rval = BLE_FIFO_RX->read();
+    }
     break;
   case BLUETOOTH_NONE:
   case BLUETOOTH_A2DP_SOURCE:
@@ -402,15 +655,24 @@ static size_t ESP32_Bluetooth_write(const uint8_t *buffer, size_t size)
 
   switch (settings->bluetooth)
   {
-#if defined(CONFIG_IDF_TARGET_ESP32)
-  case BLUETOOTH_SPP:
+#if !defined(CONFIG_IDF_TARGET_ESP32S3)
+  case BLUETOOTH_SPP_SLAVE:
+  case BLUETOOTH_SPP_MASTER:
     rval = SerialBT.write(buffer, size);
     break;
 #endif /* CONFIG_IDF_TARGET_ESP32 */
   case BLUETOOTH_LE_HM10_SERIAL:
+  {
+    char* cbuffer = (char *)malloc(size+1);
+    cbuffer[size]='\0';
+    memcpy(cbuffer, buffer, size);
+    Serial.print(cbuffer);
+    free(cbuffer);
+    
     rval = BLE_FIFO_TX->write((char *) buffer,
                         (BLE_FIFO_TX->room() > size ? size : BLE_FIFO_TX->room()));
     break;
+  }
   case BLUETOOTH_NONE:
   case BLUETOOTH_A2DP_SOURCE:
   default:
