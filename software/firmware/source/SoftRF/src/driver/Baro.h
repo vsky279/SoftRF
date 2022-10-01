@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "GNSS.h"
 #ifndef BAROHELPER_H
 #define BAROHELPER_H
 
@@ -36,6 +37,7 @@ enum
   BARO_MODULE_BME680,
   BARO_MODULE_BME280AUX,
   BARO_MODULE_MPL3115A2,
+  BARO_MODULE_SPP,
 };
 
 typedef struct barochip_ops_struct {
