@@ -29,6 +29,7 @@
 #include "RF.h"
 #include "Battery.h"
 #include "../protocol/data/D1090.h"
+#include "Bluetooth.h"
 
 #if !defined(EXCLUDE_EGM96)
 #include <egm96s.h>
@@ -160,7 +161,10 @@ bool nmea_handshake(const char *req, const char *resp, bool skipline)
 
 static gnss_id_t generic_nmea_probe()
 {
-  return nmea_handshake(NULL, "$G", false) ? GNSS_MODULE_NMEA : GNSS_MODULE_NONE;
+  return (nmea_handshake(NULL, "$G", false) || 
+    settings->bluetooth == BLUETOOTH_SPP_MASTER ||
+    (settings->bluetooth == BLUETOOTH_LE_HM10_SERIAL && strlen(settings->LXNAV_name))
+  ) ? GNSS_MODULE_NMEA : GNSS_MODULE_NONE;
 }
 
 static bool generic_nmea_setup()
