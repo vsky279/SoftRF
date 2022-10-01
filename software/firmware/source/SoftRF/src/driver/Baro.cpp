@@ -16,18 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "../system/SoC.h"
-
 #include "Baro.h"
 
 #if defined(EXCLUDE_BMP180) && defined(EXCLUDE_BMP280) && \
-    defined(EXCLUDE_BME680) && defined(EXCLUDE_MPL3115A2)
+    defined(EXCLUDE_BME680) && defined(EXCLUDE_MPL3115A2) && \
+    defined(EXCLUDE_BAROSPP)
 byte  Baro_setup()        {return BARO_MODULE_NONE;}
 void  Baro_loop()         {}
 void  Baro_fini()         {}
 float Baro_altitude()     {return 0;}
 float Baro_pressure()     {return 0;}
 float Baro_temperature()  {return 0;}
+bool Baro_probe()   {return 0;}
+
 #else
 
 #if !defined(EXCLUDE_BMP180)
@@ -44,6 +45,10 @@ float Baro_temperature()  {return 0;}
 #endif /* EXCLUDE_MPL3115A2 */
 
 #include <TinyGPS++.h>
+#include "../../SoftRF.h"
+#include "../system/SoC.h"
+#include "Bluetooth.h"
+#include "EEPROM.h"
 
 barochip_ops_t *baro_chip = NULL;
 
@@ -353,6 +358,15 @@ byte Baro_setup()
 
     return baro_chip->type;
 
+// #if !defined(EXCLUDE_BAROSPP)
+  } else if (settings->bluetooth == BLUETOOTH_SPP_MASTER ||
+    (settings->bluetooth == BLUETOOTH_LE_HM10_SERIAL && strlen(settings->LXNAV_name))
+  ) {
+    baro_chip = NULL;
+    Serial.println(F("Barometric pressure sensor is not detected. Baro data expected via Bluetooth."));
+
+    return BARO_MODULE_SPP;
+// #endif /* EXCLUDE_BAROSPP */
   } else {
     baro_chip = NULL;
     Serial.println(F("WARNING! Barometric pressure sensor is NOT detected."));
@@ -363,6 +377,23 @@ byte Baro_setup()
 
 void Baro_loop()
 {
+#if !defined(EXCLUDE_BAROSPP)
+  if (hw_info.baro == BARO_MODULE_SPP) {
+      if (gnss.vario.age() <= NMEA_EXP_TIME) {ThisAircraft.vs = gnss.vario.knpm();}
+      if (gnss.heading.age() <= NMEA_EXP_TIME) {ThisAircraft.bearing = gnss.heading.deg();}
+      if (gnss.stdAltitude.age() <= NMEA_EXP_TIME) {
+          Baro_altitude_cache    = gnss.stdAltitude.meters();
+          ThisAircraft.pressure_altitude = Baro_altitude_cache;
+#if 0
+          Serial.print("Baro_loop - baro:");
+          Serial.print(F("P.Alt. = ")); Serial.print(ThisAircraft.pressure_altitude);
+          Serial.print(F(" , VS avg. = ")); Serial.println(ThisAircraft.vs);
+#endif
+      }
+      return;
+  }
+#endif /* EXCLUDE_BAROSPP */
+
   if (baro_chip == NULL) return;
 
   if (isTimeToBaroAltitude()) {

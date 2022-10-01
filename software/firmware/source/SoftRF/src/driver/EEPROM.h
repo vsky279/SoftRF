@@ -81,6 +81,9 @@ typedef struct Settings {
     /* Use a key provided by (local) gliding contest organizer */
     uint32_t igc_key[4];
 
+#if defined(CONFIG_BT_ENABLED)
+    char LXNAV_name[33];
+#endif
 } __attribute__((packed)) settings_t;
 
 typedef struct EEPROM_S {
