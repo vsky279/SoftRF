@@ -132,7 +132,7 @@ Copyright (C) 2015-2023 &nbsp;&nbsp;&nbsp; Linar Yusupov\
 
 void handleSettings() {
 
-  size_t size = 5350;
+  size_t size = 5400;
   char *offset;
   size_t len = 0;
   char *Settings_temp = (char *) malloc(size);
@@ -344,13 +344,15 @@ void handleSettings() {
 <td align=right>\
 <select name='bluetooth'>\
 <option %s value='%d'>Off</option>\
-<option %s value='%d'>SPP</option>\
+<option %s value='%d'>SPP Slave</option>\
+<option %s value='%d'>SPP Master</option>\
 <option %s value='%d'>LE</option>\
 </select>\
 </td>\
 </tr>"),
     (settings->bluetooth == BLUETOOTH_NONE ? "selected" : ""), BLUETOOTH_NONE,
-    (settings->bluetooth == BLUETOOTH_SPP  ? "selected" : ""), BLUETOOTH_SPP,
+    (settings->bluetooth == BLUETOOTH_SPP_SLAVE ? "selected" : ""), BLUETOOTH_SPP_SLAVE,
+    (settings->bluetooth == BLUETOOTH_SPP_MASTER ? "selected" : ""), BLUETOOTH_SPP_MASTER,
     (settings->bluetooth == BLUETOOTH_LE_HM10_SERIAL ? "selected" : ""), BLUETOOTH_LE_HM10_SERIAL
     );
 
@@ -642,6 +644,22 @@ void handleSettings() {
   size -= len;
 #endif
 
+#if defined(CONFIG_BT_ENABLED)
+  snprintf_P ( offset, size,
+    PSTR("\
+<tr>\
+<th align=left>LXNAV source BLE name</th>\
+<td align=right>\
+<INPUT type='text' name='LXNAV_name' maxlength='32' size='32' value='%s'>\
+</td>\
+</tr>"),
+  settings->LXNAV_name);
+
+  len = strlen(offset);
+  offset += len;
+  size -= len;
+#endif
+
   /* Common part 8 */
   snprintf_P ( offset, size,
     PSTR("\
@@ -869,6 +887,10 @@ void handleInput() {
       buf[ 8] = 0;
       settings->igc_key[0] = strtoul(buf +  0, NULL, 16);
 #endif
+#if defined(CONFIG_BT_ENABLED)
+    } else if (server.argName(i).equals("LXNAV_name")) {
+      strcpy(settings->LXNAV_name, server.arg(i).substring(0, 32).c_str());
+#endif
     }
   }
   snprintf_P ( Input_temp, size,
@@ -902,6 +924,7 @@ PSTR("<html>\
 <tr><th align=left>Power save</th><td align=right>%d</td></tr>\
 <tr><th align=left>Freq. correction</th><td align=right>%d</td></tr>\
 <tr><th align=left>IGC key</th><td align=right>%08X%08X%08X%08X</td></tr>\
+<tr><th align=left>LXNAV BLE device name</th><td align=right>%s</td></tr>\
 </table>\
 <hr>\
   <p align=center><h1 align=center>Restart is in progress... Please, wait!</h1></p>\
@@ -915,7 +938,8 @@ PSTR("<html>\
   settings->nmea_out, settings->gdl90, settings->d1090,
   BOOL_STR(settings->stealth), BOOL_STR(settings->no_track),
   settings->power_save, settings->freq_corr,
-  settings->igc_key[0], settings->igc_key[1], settings->igc_key[2], settings->igc_key[3]
+  settings->igc_key[0], settings->igc_key[1], settings->igc_key[2], settings->igc_key[3],
+  settings->LXNAV_name
   );
   SoC->swSer_enableRx(false);
   server.send ( 200, "text/html", Input_temp );

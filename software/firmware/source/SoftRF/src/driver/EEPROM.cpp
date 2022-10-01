@@ -141,6 +141,8 @@ void EEPROM_defaults()
   eeprom_block.field.settings.igc_key[1] = 0;
   eeprom_block.field.settings.igc_key[2] = 0;
   eeprom_block.field.settings.igc_key[3] = 0;
+  
+  memset(eeprom_block.field.settings.LXNAV_name, 0, sizeof(eeprom_block.field.settings.LXNAV_name));
 }
 
 void EEPROM_store()
