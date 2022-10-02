@@ -80,6 +80,8 @@ lmic_pinmap lmic_pins = {
     .tcxo = LMIC_UNUSED_PIN,
 };
 
+esp_adc_cal_characteristics_t *adc_chars;
+
 #if !defined(EXCLUDE_LED_RING)
 #if defined(USE_NEOPIXELBUS_LIBRARY)
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> strip(PIX_NUM, SOC_GPIO_PIN_LED);
@@ -98,7 +100,7 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIX_NUM, SOC_GPIO_PIN_LED,
 
 #if defined(USE_OLED)
 U8X8_OLED_I2C_BUS_TYPE u8x8_ttgo  (TTGO_V2_OLED_PIN_RST);
-U8X8_OLED_I2C_BUS_TYPE u8x8_heltec(HELTEC_OLED_PIN_RST);
+U8X8_OLED_I2C_BUS_TYPE u8x8_heltec(SOC_GPIO_PIN_HELTRK_OLED_RST);
 U8X8_SH1106_128X64_NONAME_HW_I2C u8x8_1_3(U8X8_PIN_NONE);
 #endif /* USE_OLED */
 
@@ -611,6 +613,10 @@ static void ESP32_setup()
       lmic_pins.busy = SOC_GPIO_PIN_TBEAM_RF_BUSY_V08;
     }
 #endif /* ESP_IDF_VERSION_MAJOR */
+    if (ESP32_getFlashId() == MakeFlashId(GIGADEVICE_ID, GIGADEVICE_GD25Q64)) {
+      esp32_board      = ESP32_HELTEC_LORA_V2;
+      hw_info.model  = SOFTRF_MODEL_MIDI;
+    }
 #elif defined(CONFIG_IDF_TARGET_ESP32S2)
     esp32_board      = ESP32_S2_T8_V1_1;
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
@@ -817,6 +823,7 @@ static void ESP32_setup()
 
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
   } else if (hw_info.model == SOFTRF_MODEL_PRIME_MK3 ||
+             esp32_board   == ESP32_HELTEC_TRACKER ||
              esp32_board   == ESP32_S3_DEVKIT) {
     Wire1.begin(SOC_GPIO_PIN_S3_PMU_SDA , SOC_GPIO_PIN_S3_PMU_SCL);
     Wire1.beginTransmission(AXP2101_SLAVE_ADDRESS);
@@ -1077,9 +1084,9 @@ static void ESP32_setup()
 #endif /* EXCLUDE_IMU */
     } else {
       WIRE_FINI(Wire1);
-      esp32_board      = ESP32_S3_DEVKIT;
-      hw_info.model    = SOFTRF_MODEL_STANDALONE;
-      hw_info.revision = 203;
+      // esp32_board      = ESP32_S3_DEVKIT;
+      // hw_info.model    = SOFTRF_MODEL_STANDALONE;
+      // hw_info.revision = 203;
 
 #if !defined(EXCLUDE_IMU)
 #if 0
@@ -1137,7 +1144,8 @@ static void ESP32_setup()
     lmic_pins.dio[0] = SOC_GPIO_PIN_S3_DIO1;
 #endif /* USE_RADIOLIB */
 
-    int uSD_SS_pin = (esp32_board == ESP32_S3_DEVKIT) ?
+    int uSD_SS_pin = (esp32_board   == ESP32_HELTEC_TRACKER ||
+                     esp32_board == ESP32_S3_DEVKIT) ?
                      SOC_GPIO_PIN_S3_SD_SS_DK : SOC_GPIO_PIN_S3_SD_SS_TBEAM;
 
     /* uSD-SPI init */
@@ -1422,6 +1430,7 @@ static void ESP32_setup()
           (esp32_board == ESP32_S3_DEVKIT          ) ? SOFTRF_USB_PID_STANDALONE :
           (esp32_board == ESP32_LILYGO_T_TWR2      ) ? SOFTRF_USB_PID_HAM        :
           (esp32_board == ESP32_HELTEC_TRACKER     ) ? SOFTRF_USB_PID_MIDI       :
+          (esp32_board == ESP32_HELTEC_LORA_V2 ) ? SOFTRF_USB_PID_STANDALONE       :
           USB_PID /* 0x1001 */ ;
 
     snprintf(usb_serial_number, sizeof(usb_serial_number),
@@ -1574,6 +1583,10 @@ static void ESP32_setup()
 
   } else if (esp32_board == ESP32_HELTEC_TRACKER) {
 
+    lmic_pins.nss  = SOC_GPIO_PIN_HELTRK_SS;
+    lmic_pins.rst = SOC_GPIO_PIN_HELTRK_RST;
+    lmic_pins.busy = SOC_GPIO_PIN_HELTRK_BUSY;
+
     rtc_clk_32k_enable(true);
 
     CALIBRATE_ONE(RTC_CAL_RTC_MUX);
@@ -1644,6 +1657,27 @@ static void ESP32_setup()
     hw_info.mag = (hw_info.imu == IMU_MPU9250) ? MAG_AK8963 : hw_info.mag;
 #endif /* EXCLUDE_IMU */
   }
+#else /* CONFIG_IDF_TARGET_ESP32S3 */
+  if (esp32_board == ESP32_HELTEC_LORA_V2) {
+      Serial.println(F("INFO: Heltec Lora32 v2 is detected - switching GPSS on"));
+
+    digitalWrite(SOC_GPIO_PIN_HELTRK_GNSS_EN, LOW);
+    pinMode(SOC_GPIO_PIN_HELTRK_GNSS_EN,  OUTPUT);
+
+    // digitalWrite(SOC_GPIO_PIN_HELTRK_GNSS_RST, LOW);
+    // pinMode(SOC_GPIO_PIN_HELTRK_GNSS_RST, OUTPUT);
+    // delay(100);
+    // digitalWrite(SOC_GPIO_PIN_HELTRK_GNSS_RST, HIGH);
+
+    // pinMode(SOC_GPIO_PIN_HELTRK_TFT_EN,   INPUT_PULLDOWN);
+    // pinMode(SOC_GPIO_PIN_HELTRK_ADC_EN,   INPUT_PULLUP);
+
+//    pinMode(SOC_GPIO_PIN_HELTRK_VEXT_EN,  INPUT_PULLDOWN); /* TBD */
+
+    digitalWrite(SOC_GPIO_PIN_HELTRK_LED, LOW);
+    pinMode(SOC_GPIO_PIN_HELTRK_LED,  OUTPUT);
+
+  }  
 #endif /* CONFIG_IDF_TARGET_ESP32S3 */
 }
 
@@ -3120,11 +3154,19 @@ static void ESP32_swSer_begin(unsigned long baud)
       Serial.println(F("is detected."));
       Serial_GNSS_In.begin(baud, SERIAL_IN_BITS,
                            SOC_GPIO_PIN_TWR2_GNSS_RX, SOC_GPIO_PIN_TWR2_GNSS_TX);
+    } else if (esp32_board == ESP32_HELTEC_LORA_V2) {
+      Serial.println(F("INFO: Heltec Lora32 v2 is detected."));
+        // digitalWrite(SOC_GPIO_PIN_HELTRK_GNSS_EN, LOW);
+        // pinMode(SOC_GPIO_PIN_HELTRK_GNSS_EN,  OUTPUT);
+      
+      Serial_GNSS_In.begin(baud, SERIAL_IN_BITS,
+                           SOC_GPIO_PIN_HELTRK_GNSS_RX,
+                           SOC_GPIO_PIN_HELTRK_GNSS_TX);
     } else if (esp32_board == ESP32_HELTEC_TRACKER) {
       Serial.print(F("INFO: Heltec Tracker rev. "));
       Serial.print(hw_info.revision);
       Serial.println(F(" is detected."));
-      Serial_GNSS_In.begin(115200, SERIAL_IN_BITS,
+      Serial_GNSS_In.begin(baud, SERIAL_IN_BITS,
                            SOC_GPIO_PIN_HELTRK_GNSS_RX,
                            SOC_GPIO_PIN_HELTRK_GNSS_TX);
     } else if (esp32_board == ESP32_C6_DEVKIT) {
@@ -3148,6 +3190,8 @@ static void ESP32_swSer_begin(unsigned long baud)
   /* Need to gather some statistics on variety of flash IC usage */
   Serial.print(F("Flash memory ID: "));
   Serial.println(ESP32_getFlashId(), HEX);
+  Serial.print(F("PSRAM: "));
+  Serial.println(psramFound());
 }
 
 static void ESP32_swSer_enableRx(boolean arg)
@@ -3190,8 +3234,7 @@ static byte ESP32_Display_setup()
   byte rval = DISPLAY_NONE;
 
   if (esp32_board != ESP32_TTGO_T_WATCH &&
-      esp32_board != ESP32_S2_T8_V1_1   &&
-      esp32_board != ESP32_HELTEC_TRACKER) {
+      esp32_board != ESP32_S2_T8_V1_1) {
 
 #if defined(USE_OLED)
     bool has_oled = false;
@@ -3215,6 +3258,33 @@ static byte ESP32_Display_setup()
       Wire.beginTransmission(SH1106_OLED_I2C_ADDR);
       has_oled = (Wire.endTransmission() == 0);
       WIRE_FINI(Wire);
+    } else if (esp32_board == ESP32_HELTEC_TRACKER || esp32_board == ESP32_HELTEC_LORA_V2) {
+      Serial.print("Setting up HELTEC OLED display...");
+      
+      pinMode(SOC_GPIO_PIN_HELTRK_OLED_RST, OUTPUT);
+      digitalWrite(SOC_GPIO_PIN_HELTRK_OLED_RST, HIGH);
+      delay(50);
+      digitalWrite(SOC_GPIO_PIN_HELTRK_OLED_RST, LOW);
+      delay(200);
+      digitalWrite(SOC_GPIO_PIN_HELTRK_OLED_RST, HIGH);
+      delay(50);
+      
+      Wire1.begin(SOC_GPIO_PIN_HELTRK_OLED_SDA, SOC_GPIO_PIN_HELTRK_OLED_SCL);
+      Wire1.beginTransmission(SSD1306_OLED_I2C_ADDR);
+      has_oled = (Wire1.endTransmission() == 0);
+      WIRE_FINI(Wire1);
+      if (has_oled) {
+        Serial.println("done");
+        u8x8 = &u8x8_heltec;
+        rval = DISPLAY_OLED_HELTEC;
+      } else {
+        Serial.println("failed");
+      }
+    } else if (GPIO_21_22_are_busy) {
+      Wire1.begin(SOC_GPIO_PIN_HELTRK_OLED_SDA, SOC_GPIO_PIN_HELTRK_OLED_SCL);
+      Wire1.beginTransmission(SSD1306_OLED_I2C_ADDR);
+      has_oled = (Wire1.endTransmission() == 0);
+      WIRE_FINI(Wire1);
       if (has_oled) {
         u8x8 = &u8x8_1_3;
         rval = DISPLAY_OLED_1_3;
@@ -3256,7 +3326,7 @@ static byte ESP32_Display_setup()
 #endif
         }
       } else {
-        Wire1.begin(HELTEC_OLED_PIN_SDA , HELTEC_OLED_PIN_SCL);
+        Wire1.begin(SOC_GPIO_PIN_HELTRK_OLED_SDA, SOC_GPIO_PIN_HELTRK_OLED_SCL);
         Wire1.beginTransmission(SSD1306_OLED_I2C_ADDR);
         has_oled = (Wire1.endTransmission() == 0);
         WIRE_FINI(Wire1);
@@ -3295,7 +3365,7 @@ static byte ESP32_Display_setup()
       } else {
         if (!(hw_info.model    == SOFTRF_MODEL_PRIME_MK2 &&
               hw_info.revision >= 8)) {
-          Wire1.begin(HELTEC_OLED_PIN_SDA , HELTEC_OLED_PIN_SCL);
+          Wire1.begin(SOC_GPIO_PIN_HELTRK_OLED_SDA, SOC_GPIO_PIN_HELTRK_OLED_SCL);
           Wire1.beginTransmission(SSD1306_OLED_I2C_ADDR);
           has_oled = (Wire1.endTransmission() == 0);
           WIRE_FINI(Wire1);
@@ -3845,15 +3915,68 @@ static void ESP32_Display_fini(int reason)
   }
 }
 
+
+// Poll the proper ADC for VBatt on Heltec Lora 32 with GPIO21 toggled
+uint16_t read_heltec_voltage() {
+  uint16_t reading = 666;
+
+  digitalWrite(VBATT_GPIO, LOW);              // ESP32 Lora v2.1 reads on GPIO37 when GPIO21 is low
+  delay(ADC_READ_STABILIZE);                  // let GPIO stabilize
+#if defined(CONFIG_IDF_TARGET_ESP32S3) 
+  pinMode(ADC1_CHANNEL_0, OPEN_DRAIN);        // ADC GPIO01
+  reading = adc1_get_raw(ADC1_CHANNEL_0);
+  pinMode(ADC1_CHANNEL_0, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider)
+#else
+  // Use this for V2
+  // pinMode(ADC2_CHANNEL_4, OPEN_DRAIN);        // ADC GPIO13
+  // adc2_get_raw(ADC2_CHANNEL_4, ADC_WIDTH_BIT_12, (int*)&reading);
+  // pinMode(ADC2_CHANNEL_4, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider
+  // Use this for V2.1
+  // pinMode(ADC1_CHANNEL_1, OPEN_DRAIN);        // ADC GPIO37
+  reading = adc1_get_raw(ADC1_CHANNEL_1);
+  // pinMode(ADC1_CHANNEL_1, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider)
+#endif
+
+  uint16_t voltage = esp_adc_cal_raw_to_voltage(reading, adc_chars);  
+  return voltage;
+}
+
 static void ESP32_Battery_setup()
 {
-  if ((hw_info.model    == SOFTRF_MODEL_PRIME_MK2  &&
-       hw_info.revision >= 8)                      ||
-       hw_info.model    == SOFTRF_MODEL_PRIME_MK3  ||
+
+  if ((hw_info.model    == SOFTRF_MODEL_PRIME_MK2 &&
+       hw_info.revision >= 8)                     ||
+       hw_info.model    == SOFTRF_MODEL_PRIME_MK3 ||
        hw_info.model    == SOFTRF_MODEL_SKYWATCH) {
 
     /* T-Beam v08+, T-Beam Supreme and T-Watch have PMU */
 
+#if defined(CONFIG_IDF_TARGET_ESP32) 
+  } else if (esp32_board == ESP32_HELTEC_LORA_V2) {
+          // Use this for older V2.0 with VBatt reading wired to GPIO13
+          // adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
+          // esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_2, ADC_ATTEN_DB_6, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
+          // adc2_config_channel_atten(ADC2_CHANNEL_4, ADC_ATTEN_DB_6);
+          // Use this for V2.1
+          adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
+          esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_6, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
+          adc1_config_width(ADC_WIDTH_BIT_12);
+          adc1_config_channel_atten(ADC1_CHANNEL_1, ADC_ATTEN_DB_6);
+          pinMode(VBATT_GPIO, OUTPUT);
+          digitalWrite(VBATT_GPIO, LOW);              // ESP32 Lora v2.1 reads on GPIO37 when GPIO21 is low
+          delay(ADC_READ_STABILIZE);                  // let GPIO stab      
+#endif
+#if defined(CONFIG_IDF_TARGET_ESP32S3) 
+  } else if (esp32_board == ESP32_HELTEC_TRACKER) {
+          adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
+          esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_6, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
+          adc1_config_width(ADC_WIDTH_BIT_12);
+          adc1_config_channel_atten(ADC1_CHANNEL_0, ADC_ATTEN_DB_6);
+          
+          pinMode(VBATT_GPIO, OUTPUT);
+          digitalWrite(VBATT_GPIO, LOW);              // ESP32 Lora v2.1 reads on GPIO37 when GPIO21 is low
+          delay(ADC_READ_STABILIZE);                  // let GPIO stab      
+#endif
   } else {
 #if defined(CONFIG_IDF_TARGET_ESP32)
 #if !defined(ESP_IDF_VERSION_MAJOR) || ESP_IDF_VERSION_MAJOR < 5
@@ -3924,7 +4047,8 @@ static float ESP32_Battery_param(uint8_t param)
             hw_info.model == SOFTRF_MODEL_HAM        || /* TBD */
             hw_info.model == SOFTRF_MODEL_MIDI       || /* TBD */
             /* TTGO T3 V2.1.6 */
-           (hw_info.model == SOFTRF_MODEL_STANDALONE && hw_info.revision == 16) ?
+           (hw_info.model == SOFTRF_MODEL_STANDALONE && hw_info.revision == 16) ||
+           (esp32_board == ESP32_HELTEC_TRACKER || esp32_board == ESP32_HELTEC_LORA_V2 || esp32_board == ESP32_S3_DEVKIT) ?
             BATTERY_THRESHOLD_LIPO : BATTERY_THRESHOLD_NIMHX2;
     break;
 
@@ -3936,7 +4060,8 @@ static float ESP32_Battery_param(uint8_t param)
             hw_info.model == SOFTRF_MODEL_HAM        || /* TBD */
             hw_info.model == SOFTRF_MODEL_MIDI       || /* TBD */
             /* TTGO T3 V2.1.6 */
-           (hw_info.model == SOFTRF_MODEL_STANDALONE && hw_info.revision == 16) ?
+           (hw_info.model == SOFTRF_MODEL_STANDALONE && hw_info.revision == 16)  ||
+           (esp32_board == ESP32_HELTEC_TRACKER || esp32_board == ESP32_HELTEC_LORA_V2 || esp32_board == ESP32_S3_DEVKIT) ?
             BATTERY_CUTOFF_LIPO : BATTERY_CUTOFF_NIMHX2;
     break;
 
@@ -3978,7 +4103,11 @@ static float ESP32_Battery_param(uint8_t param)
 
     case PMU_NONE:
     default:
-      voltage = (float) read_voltage();
+      if (esp32_board == ESP32_HELTEC_TRACKER || esp32_board == ESP32_HELTEC_LORA_V2) {
+          voltage = read_heltec_voltage();
+      } else {      
+          voltage = (float) read_voltage();
+      }
 
       /* T-Beam v02-v07 and T3 V2.1.6 have voltage divider 100k/100k on board */
       if (hw_info.model == SOFTRF_MODEL_PRIME_MK2   ||
@@ -3990,8 +4119,8 @@ static float ESP32_Battery_param(uint8_t param)
                  esp32_board == ESP32_C6_DEVKIT) {
       /* NodeMCU has voltage divider 100k/220k on board */
         voltage *= 3.2;
-      } else if (esp32_board == ESP32_HELTEC_TRACKER) {
-        voltage *= 4.9;
+      } else if (esp32_board == ESP32_HELTEC_TRACKER || esp32_board == ESP32_HELTEC_LORA_V2) {
+        voltage *= VOLTAGE_DIVIDER;
       }
       break;
     }
@@ -4030,7 +4159,8 @@ static bool ESP32_Baro_setup()
     Wire.setPins(SOC_GPIO_PIN_T8_S2_SDA, SOC_GPIO_PIN_T8_S2_SCL);
 
   } else if (esp32_board == ESP32_S3_DEVKIT ||
-             esp32_board == ESP32_TTGO_T_BEAM_SUPREME) {
+             esp32_board == ESP32_TTGO_T_BEAM_SUPREME ||
+             esp32_board == ESP32_HELTEC_TRACKER) {
 
     Wire.setPins(SOC_GPIO_PIN_S3_SDA, SOC_GPIO_PIN_S3_SCL);
 
@@ -4252,8 +4382,8 @@ void handleMainEvent(AceButton* button, uint8_t eventType,
         } else {
 #if defined(USE_OLED)
         OLED_Next_Page();
-      }
 #endif /* USE_OLED */
+      }
 #if defined(USE_SA8X8)
       if (button     == &button_ptt &&
           hw_info.rf == RF_IC_SA8X8 &&
@@ -4292,6 +4422,7 @@ void handleMainEvent(AceButton* button, uint8_t eventType,
         shutdown(SOFTRF_SHUTDOWN_BUTTON);
       }
       break;
+    }
   }
 }
 
@@ -4326,10 +4457,12 @@ static void ESP32_Button_setup()
        esp32_board == ESP32_S2_T8_V1_1        ||
        esp32_board == ESP32_LILYGO_T_TWR2     ||
        esp32_board == ESP32_HELTEC_TRACKER    ||
+       esp32_board == ESP32_HELTEC_LORA_V2    ||
        esp32_board == ESP32_S3_DEVKIT) {
     button_pin = esp32_board == ESP32_S2_T8_V1_1 ? SOC_GPIO_PIN_T8_S2_BUTTON  :
                  esp32_board == ESP32_S3_DEVKIT  ? SOC_GPIO_PIN_S3_BUTTON     :
                  esp32_board == ESP32_HELTEC_TRACKER ? SOC_GPIO_PIN_S3_BUTTON :
+                 esp32_board == ESP32_HELTEC_LORA_V2 ? SOC_GPIO_PIN_T8_S2_BUTTON :
                  esp32_board == ESP32_LILYGO_T_TWR2 ?
                  SOC_GPIO_PIN_TWR2_ENC_BUTTON : SOC_GPIO_PIN_TBEAM_V05_BUTTON;
 
@@ -4394,6 +4527,7 @@ static void ESP32_Button_loop()
       esp32_board == ESP32_S2_T8_V1_1          ||
       esp32_board == ESP32_LILYGO_T_TWR2       ||
       esp32_board == ESP32_HELTEC_TRACKER      ||
+      esp32_board == ESP32_HELTEC_LORA_V2      ||
       esp32_board == ESP32_S3_DEVKIT) {
     button_1.check();
 #if defined(USE_SA8X8)
@@ -4409,6 +4543,7 @@ static void ESP32_Button_fini()
   if (esp32_board == ESP32_S2_T8_V1_1        ||
       esp32_board == ESP32_LILYGO_T_TWR2     ||
       esp32_board == ESP32_HELTEC_TRACKER    ||
+      esp32_board == ESP32_HELTEC_LORA_V2    ||
       esp32_board == ESP32_S3_DEVKIT) {
     int button_pin = esp32_board == ESP32_S2_T8_V1_1 ? SOC_GPIO_PIN_T8_S2_BUTTON :
                      esp32_board == ESP32_LILYGO_T_TWR2 ?
