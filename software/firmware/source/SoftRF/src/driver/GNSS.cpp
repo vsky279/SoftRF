@@ -1187,7 +1187,9 @@ byte GNSS_setup() {
 
 #if !defined(EXCLUDE_GNSS_UBLOX) && defined(ENABLE_UBLOX_RFS)
     if (hw_info.model == SOFTRF_MODEL_PRIME_MK2 ||
-        hw_info.model == SOFTRF_MODEL_PRIME_MK3) {
+        hw_info.model == SOFTRF_MODEL_PRIME_MK3 ||
+        hw_info.model == ESP32_HELTEC_TRACKER ||
+        hw_info.model == ESP32_HELTEC_LORA_V2 ) {
 
       byte version = ublox_version();
 

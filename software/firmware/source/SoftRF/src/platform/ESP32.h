@@ -32,6 +32,11 @@
 #define MAX_TRACKING_OBJECTS    8
 
 #define DEFAULT_SOFTRF_MODEL    SOFTRF_MODEL_STANDALONE
+// #define EXCLUDE_BMP280
+// #define EXCLUDE_BMP180
+// #define EXCLUDE_MPL3115A2
+// #define EXCLUDE_BAROSPP
+// #define EXCLUDE_WIFI
 
 #define SerialOutput            Serial
 #define SoftwareSerial          HardwareSerial
@@ -172,12 +177,7 @@ extern Adafruit_NeoPixel strip;
 
 #include "iomap/LilyGO_T22.h"
 #include "iomap/LilyGO_T3.h"
-
-// Hardware pin definitions for Heltec and TTGO-V1 LoRa-32 Boards with OLED SSD1306 I2C Display
-#define HELTEC_OLED_PIN_RST             U8X8_PIN_NONE // 16
-#define HELTEC_OLED_PIN_SDA             4
-#define HELTEC_OLED_PIN_SCL             15
-
+#include "iomap/Heltec_Tracker.h"
 #include "iomap/LilyGO_TWatch.h"
 #include "iomap/LilyGO_T8S2.h"
 
@@ -243,6 +243,7 @@ enum esp32_board_id {
   ESP32_LILYGO_T_TWR_V1_3,
   ESP32_LILYGO_T_TWR_V2_0,
   ESP32_HELTEC_TRACKER,
+  ESP32_HELTEC_LORA_V2,
 };
 
 /* https://github.com/espressif/usb-pids/blob/main/allocated-pids.txt#L313 */
@@ -376,12 +377,12 @@ extern const USB_Device_List_t supported_USB_devices[];
 #define PMK2_SLEEP_MODE 3      //  60 uA : axp.shutdown()
 
 #if defined(USE_OLED)
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
-#define U8X8_OLED_I2C_BUS_TYPE  U8X8_SSD1306_128X64_NONAME_HW_I2C
+// #if defined(CONFIG_IDF_TARGET_ESP32S3)
+// #define U8X8_OLED_I2C_BUS_TYPE  U8X8_SSD1306_128X64_NONAME_HW_I2C
 #define ENABLE_OLED_TEXT_PAGE
-#else
+// #else
 #define U8X8_OLED_I2C_BUS_TYPE  U8X8_SSD1306_128X64_NONAME_2ND_HW_I2C
-#endif /* CONFIG_IDF_TARGET_ESP32S3 */
+// #endif /* CONFIG_IDF_TARGET_ESP32S3 */
 #endif /* USE_OLED */
 
 #endif /* PLATFORM_ESP32_H */
