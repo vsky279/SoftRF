@@ -34,6 +34,11 @@
 #define MAX_TRACKING_OBJECTS    8
 
 #define DEFAULT_SOFTRF_MODEL    SOFTRF_MODEL_STANDALONE
+// #define EXCLUDE_BMP280
+// #define EXCLUDE_BMP180
+// #define EXCLUDE_MPL3115A2
+// #define EXCLUDE_BAROSPP
+// #define EXCLUDE_WIFI
 
 #define SerialOutput            Serial
 #define SoftwareSerial          HardwareSerial
@@ -259,12 +264,7 @@ static inline color_t uni_Color(uint8_t r, uint8_t g, uint8_t b) {
 
 #include "iomap/LilyGO_T22.h"
 #include "iomap/LilyGO_T3.h"
-
-// Hardware pin definitions for Heltec and TTGO-V1 LoRa-32 Boards with OLED SSD1306 I2C Display
-#define HELTEC_OLED_PIN_RST             U8X8_PIN_NONE // 16
-#define HELTEC_OLED_PIN_SDA             4
-#define HELTEC_OLED_PIN_SCL             15
-
+#include "iomap/Heltec_Tracker.h"
 #include "iomap/LilyGO_TWatch.h"
 #include "iomap/LilyGO_T8S2.h"
 
@@ -349,6 +349,7 @@ enum esp32_board_id {
   ESP32_S2_T8_V1_1,
   ESP32_LILYGO_T_TWR2,
   ESP32_HELTEC_TRACKER,
+  ESP32_HELTEC_LORA_V2,
   ESP32_LILYGO_T3C6,
   ESP32_LILYGO_T3S3_EPD,
   ESP32_LILYGO_T3S3_OLED,
