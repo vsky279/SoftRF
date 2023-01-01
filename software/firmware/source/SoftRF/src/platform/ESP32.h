@@ -426,7 +426,7 @@ struct rst_info {
 #define PCA9557_ADDRESS         (0x18)
 
 /* Disable brownout detection (avoid unexpected reset on some boards) */
-#define ESP32_DISABLE_BROWNOUT_DETECTOR 0
+#define ESP32_DISABLE_BROWNOUT_DETECTOR 1
 
 #define NMEA_TCP_SERVICE
 #define USE_NMEALIB
