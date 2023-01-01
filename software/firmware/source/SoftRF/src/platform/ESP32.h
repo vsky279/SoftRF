@@ -293,7 +293,7 @@ struct rst_info {
 #define QMI8658_REG_WHOAMI      (0x00)
 
 /* Disable brownout detection (avoid unexpected reset on some boards) */
-#define ESP32_DISABLE_BROWNOUT_DETECTOR 0
+#define ESP32_DISABLE_BROWNOUT_DETECTOR 1
 
 #define NMEA_TCP_SERVICE
 #define USE_NMEALIB
