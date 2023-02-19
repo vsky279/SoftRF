@@ -1078,7 +1078,7 @@ static void sx1276_shutdown()
 #if defined(USE_BASICMAC)
 static void sx1262_shutdown()
 {
-  os_init (nullptr);
+  // os_init (nullptr);
   sx126x_ll_ops.radio_sleep();
   delay(1);
 
