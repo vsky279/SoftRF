@@ -3871,13 +3871,34 @@ void handleMainEvent(AceButton* button, uint8_t eventType,
   switch (eventType) {
     case AceButton::kEventClicked:
     case AceButton::kEventReleased:
-#if defined(USE_OLED)
       if (button == &button_1) {
-        OLED_Next_Page();
-      }
+        if (settings->bluetooth == BLUETOOTH_PASSTROUGH) {
+            settings->bluetooth = BLUETOOTH_LE_HM10_SERIAL;
+#if defined(USE_OLED)
+            OLED_Next_Page();
 #endif
+        } else {
+#if defined(USE_OLED)
+        OLED_Next_Page();
+#endif
+        }
+      }
       break;
     case AceButton::kEventDoubleClicked:
+      if (button == &button_1) {
+          Serial.println(F("Double click"));
+          if (settings->bluetooth == BLUETOOTH_LE_HM10_SERIAL) {
+              settings->bluetooth = BLUETOOTH_PASSTROUGH;
+#if defined(USE_OLED)
+              OLED_passthrough();
+#endif
+          } else if (settings->bluetooth == BLUETOOTH_PASSTROUGH) {
+              settings->bluetooth = BLUETOOTH_LE_HM10_SERIAL;
+#if defined(USE_OLED)
+              OLED_Next_Page();
+#endif
+          }
+      }
       break;
     case AceButton::kEventLongPressed:
       if (button == &button_1) {
@@ -3937,9 +3958,14 @@ static void ESP32_Button_setup()
     PageButtonConfig->setFeature(ButtonConfig::kFeatureClick);
     PageButtonConfig->setFeature(ButtonConfig::kFeatureLongPress);
     PageButtonConfig->setFeature(ButtonConfig::kFeatureSuppressAfterClick);
+    PageButtonConfig->setFeature(ButtonConfig::kFeatureDoubleClick);
+    PageButtonConfig->setFeature(ButtonConfig::kFeatureSuppressAfterDoubleClick);
+    // PageButtonConfig->setFeature(ButtonConfig::kFeatureSuppressClickBeforeDoubleClick);
+
 //  PageButtonConfig->setDebounceDelay(15);
     PageButtonConfig->setClickDelay(600);
     PageButtonConfig->setLongPressDelay(2000);
+    PageButtonConfig->setDoubleClickDelay(400);
   } else if ((hw_info.model == SOFTRF_MODEL_PRIME_MK2 && hw_info.revision >= 8) ||
              esp32_board == ESP32_TTGO_T_BEAM_SUPREME) {
     button_pin = (esp32_board == ESP32_TTGO_T_BEAM_SUPREME) ?

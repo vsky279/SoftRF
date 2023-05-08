@@ -1146,6 +1146,33 @@ void OLED_info3(int acfts, char *reg, char *mam, char *cn)
   }
 }
 
+void OLED_passthrough()
+{
+  if (u8x8) {
+
+    u8x8->clear();
+
+    switch (hw_info.display)
+    {
+#if !defined(EXCLUDE_OLED_049)
+    case DISPLAY_OLED_0_49:
+      {
+        u8x8->draw2x2String( 1, 4, "pass-");
+        u8x8->draw2x2String( 1, 6, "through");
+      }
+      break;
+#endif /* EXCLUDE_OLED_049 */
+    case DISPLAY_OLED_TTGO:
+    case DISPLAY_OLED_HELTEC:
+    case DISPLAY_OLED_1_3:
+    default:
+      u8x8->draw2x2String( 1, 2, "pass-");
+      u8x8->draw2x2String( 1, 4, "through");
+      break;
+    }
+  }
+}
+
 void OLED_Next_Page()
 {
   if (u8x8) {
