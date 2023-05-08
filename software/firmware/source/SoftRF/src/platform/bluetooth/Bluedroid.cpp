@@ -78,7 +78,8 @@ BLECharacteristic* pMIDICharacteristic = NULL;
 #endif /* USE_BLE_MIDI */
 
 cbuf *BLE_FIFO_RX, *BLE_FIFO_TX;
-cbuf *LXNAV_FIFO_RX = NULL; //*LXNAV_FIFO_TX = NULL;
+cbuf *LXNAV_FIFO_RX = NULL; 
+cbuf *LXNAV_FIFO_TX = NULL;
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
 #include <BluetoothSerial.h>
@@ -475,7 +476,7 @@ static void ESP32_Bluetooth_setup()
 
       if (strlen(settings->LXNAV_name)) {
         LXNAV_FIFO_RX = new cbuf(BLE_FIFO_RX_SIZE);
-        // LXNAV_FIFO_TX = new cbuf(BLE_FIFO_TX_SIZE);
+        LXNAV_FIFO_TX = new cbuf(BLE_FIFO_TX_SIZE);
         
         // Retrieve a Scanner and set the callback we want to use to be informed when we
         // have detected a new device.  Specify that we want active scanning and start the
@@ -590,6 +591,83 @@ static void ESP32_Bluetooth_loop()
   case BLUETOOTH_NONE:
   case BLUETOOTH_SPP_SLAVE:
   case BLUETOOTH_A2DP_SOURCE:
+  case BLUETOOTH_PASSTROUGH:
+     {
+      if (deviceConnected && (millis() - BLE_Notify_TimeMarker > 10)) { /* < 18000 baud */
+
+          uint8_t chunk[BLE_MAX_WRITE_CHUNK_SIZE];
+          
+          size_t size = (LXNAV_FIFO_TX->available() < BLE_MAX_WRITE_CHUNK_SIZE ?
+                         LXNAV_FIFO_TX->available() : BLE_MAX_WRITE_CHUNK_SIZE);
+          if (size) {
+            LXNAV_FIFO_TX->read((char *) chunk, size);
+            if (connected) {
+                LXNAVTXCharacteristic->writeValue (chunk, size); // , false
+                Serial.print("\nL: ");
+                for (uint8_t i = 0; i<size; i++) {Serial.write(chunk[i]);}
+            }
+            
+            BLE_Notify_TimeMarker = millis();
+          } else {
+          
+          // size_t size = (BLE_FIFO_TX->available() < BLE_MAX_WRITE_CHUNK_SIZE ?
+                         // BLE_FIFO_TX->available() : BLE_MAX_WRITE_CHUNK_SIZE);
+          size = (BLE_FIFO_TX->available() < BLE_MAX_WRITE_CHUNK_SIZE ?
+                         BLE_FIFO_TX->available() : BLE_MAX_WRITE_CHUNK_SIZE);
+          if (size) {
+            BLE_FIFO_TX->read((char *) chunk, size);
+
+            pUARTCharacteristic->setValue(chunk, size);
+            pUARTCharacteristic->notify();
+            
+            Serial.print("\nX: ");
+            for (uint8_t i = 0; i<size; i++) {Serial.write(chunk[i]);}
+            
+            BLE_Notify_TimeMarker = millis();
+          }
+          }
+      }
+      // disconnecting
+      if (!deviceConnected && oldDeviceConnected && (millis() - BLE_Advertising_TimeMarker > 500) ) {
+          // give the bluetooth stack the chance to get things ready
+          pServer->startAdvertising(); // restart advertising
+          oldDeviceConnected = deviceConnected;
+          BLE_Advertising_TimeMarker = millis();
+      }
+      // connecting
+      if (deviceConnected && !oldDeviceConnected) {
+          // do stuff here on connecting
+          oldDeviceConnected = deviceConnected;
+      }
+      if (deviceConnected && isTimeToBattery()) {
+        uint8_t battery_level = Battery_charge();
+
+        pBATCharacteristic->setValue(&battery_level, 1);
+        pBATCharacteristic->notify();
+      }
+
+      if (doConnect == true) {
+        if (connectToServer()) {
+          Serial.println("We are now connected to the BLE Server.");
+        } else {
+          Serial.println("We have failed to connect to the server; there is nothin more we will do.");
+        }
+        doConnect = false;
+      }
+
+      if (!connected &&
+        (LXNAVDevice || strlen(settings->LXNAV_name)) &&
+        millis() - Discovery_TimeMarker > 20e3)
+     {
+        Serial.println("Starting new BLE scan");
+        Discovery_TimeMarker = millis();
+        
+        BLEScan* pBLEScan = BLEDevice::getScan();
+        vTaskDelay(10);
+        pBLEScan->start(2);
+      }
+    }
+    break;
   default:
     break;
   }
@@ -613,6 +691,7 @@ static int ESP32_Bluetooth_available()
     break;
 #endif /* CONFIG_IDF_TARGET_ESP32 */
   case BLUETOOTH_LE_HM10_SERIAL:
+  case BLUETOOTH_PASSTROUGH:
     rval = BLE_FIFO_RX->available() || (LXNAV_FIFO_RX && LXNAV_FIFO_RX->available());
     break;
   case BLUETOOTH_NONE:
@@ -627,6 +706,7 @@ static int ESP32_Bluetooth_available()
 static int ESP32_Bluetooth_read()
 {
   int rval = -1;
+  int cval = -1;
 
   switch (settings->bluetooth)
   {
@@ -645,6 +725,22 @@ static int ESP32_Bluetooth_read()
     break;
   case BLUETOOTH_NONE:
   case BLUETOOTH_A2DP_SOURCE:
+  case BLUETOOTH_PASSTROUGH:
+    if (LXNAV_FIFO_RX->available()) {
+        cval = LXNAV_FIFO_RX->read();
+        // Serial.print("LI[");
+        // Serial.print((char)cval);
+        // Serial.print("]");
+        BLE_FIFO_TX->write((const char*)&cval, (BLE_FIFO_TX->room() > 0 ? 1 : 0));
+    }
+
+    if (BLE_FIFO_RX->available()) {
+        cval = BLE_FIFO_RX->read();
+        // Serial.print("XI[");
+        // Serial.print((char)cval);
+        // Serial.print("]");
+        LXNAV_FIFO_TX->write((const char*)&cval, (LXNAV_FIFO_TX->room() > 0 ? 1 : 0));
+    }
   default:
     break;
   }
