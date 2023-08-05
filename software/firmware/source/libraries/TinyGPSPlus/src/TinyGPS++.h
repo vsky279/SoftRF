@@ -187,6 +187,12 @@ struct TinyGPSSpeed : TinyGPSDecimal
    double kmph()     { return _GPS_KMPH_PER_KNOT * value() / 100.0; }
 };
 
+struct TinyGPSClimbRate : TinyGPSDecimal
+{
+   double mps()      { return value() / 100.0; }
+   double knpm()      { return value() * _GPS_FEET_PER_METER * 60 / 100.0; }
+};
+
 struct TinyGPSCourse : public TinyGPSDecimal
 {
    double deg()      { return value() / 100.0; }
@@ -257,6 +263,11 @@ public:
   TinyGPSHDOP hdop;
   TinyGPSGeoidSeparation separation;
 
+  TinyGPSAltitude stdAltitude;
+  TinyGPSSpeed airspeed;
+  TinyGPSClimbRate vario;
+  TinyGPSCourse heading;
+  
   static const char *libraryVersion() { return _GPS_VERSION; }
 
   static double distanceBetween(double lat1, double long1, double lat2, double long2);
@@ -272,7 +283,7 @@ public:
   uint32_t passedChecksum()   const { return passedChecksumCount; }
 
 private:
-  enum {GPS_SENTENCE_GPGGA, GPS_SENTENCE_GPRMC, GPS_SENTENCE_OTHER};
+  enum {GPS_SENTENCE_GPGGA, GPS_SENTENCE_GPRMC, GPS_SENTENCE_LXWP0, GPS_SENTENCE_OTHER};
 
   // parsing state variables
   uint8_t parity;
