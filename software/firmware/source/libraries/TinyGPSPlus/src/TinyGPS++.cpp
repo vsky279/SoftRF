@@ -31,6 +31,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define _GPGGAterm   "GPGGA"
 #define _GNRMCterm   "GNRMC"
 #define _GNGGAterm   "GNGGA"
+#define _LXWP0term    "LXWP0"
 
 TinyGPSPlus::TinyGPSPlus()
   :  parity(0)
@@ -191,6 +192,13 @@ bool TinyGPSPlus::endOfTermHandler()
         satellites.commit();
         hdop.commit();
         break;
+      case GPS_SENTENCE_LXWP0:
+        airspeed.commit();
+        stdAltitude.commit();
+        vario.commit();
+        heading.commit();
+        // Serial.println("GPS_SENTENCE_LXWP0 - commit");
+        break;
       }
 
       // Commit all custom listeners of this sentence type
@@ -214,6 +222,8 @@ bool TinyGPSPlus::endOfTermHandler()
       curSentenceType = GPS_SENTENCE_GPRMC;
     else if (!strcmp(term, _GPGGAterm) || !strcmp(term, _GNGGAterm))
       curSentenceType = GPS_SENTENCE_GPGGA;
+    else if (!strcmp(term, _LXWP0term))
+      curSentenceType = GPS_SENTENCE_LXWP0;
     else
       curSentenceType = GPS_SENTENCE_OTHER;
 
@@ -225,7 +235,7 @@ bool TinyGPSPlus::endOfTermHandler()
     return false;
   }
 
-  if (curSentenceType != GPS_SENTENCE_OTHER && term[0])
+  if ((curSentenceType == GPS_SENTENCE_GPRMC || curSentenceType == GPS_SENTENCE_GPGGA) && term[0])
     switch(COMBINE(curSentenceType, curTermNumber))
   {
     case COMBINE(GPS_SENTENCE_GPRMC, 1): // Time in both sentences
@@ -281,6 +291,54 @@ bool TinyGPSPlus::endOfTermHandler()
       break;
   }
 
+    // LXWP0,Y,222.3,1665.5,1.71,,,,,,239,174,10.1
+    // 1 loger_stored (Y/N)
+    // 2 IAS (kph)
+    // 3 baroaltitude (m)
+    // 4 vario (m/s)
+    // 5-9 unknown
+    // 10 heading of plane
+    // 11 windcourse (deg)
+    // 12 windspeed (kph)
+
+    // Or another example...
+
+    // $LXWP0,Y,0.0,95.7,0.00,,,,,,140,247,22.5*40
+    // logger_stored Y
+    // IAS=0.0km/h (glider was on the ground, ready for take-off. We might check speed unit just to make sure it is Km/h and not m/s)
+    // barometric altitude=95.7~96m
+    // Vario=0.00 m/s (on the ground, no moving)
+    // 5 empty fields
+    // Glider heading=140 deg
+    // Wind direction = 247 deg (- to 247deg)
+    // Wind Speed = 22.5km/h
+    // Data check sum=*40
+  
+  if (curSentenceType == GPS_SENTENCE_LXWP0 && term[0])
+            // Serial.print("GPS_SENTENCE_LXWP0 - parse: "); Serial.println(term);
+    switch(COMBINE(curSentenceType, curTermNumber))
+  {
+    case COMBINE(GPS_SENTENCE_LXWP0, 1): // loger_stored (Y/N)
+      break;
+    case COMBINE(GPS_SENTENCE_LXWP0, 2): // IAS (kph)
+      airspeed.set(term);
+      break;
+    case COMBINE(GPS_SENTENCE_LXWP0, 3): // baroaltitude (m)
+      stdAltitude.set(term);
+      break;
+    case COMBINE(GPS_SENTENCE_LXWP0, 4): // vario (m/s)
+      vario.set(term);
+      break;
+    case COMBINE(GPS_SENTENCE_LXWP0, 10): // heading of plane
+      heading.set(term);
+      break;
+    // case COMBINE(GPS_SENTENCE_LXWP0, 11): // windcourse (deg)
+      // break;
+    // case COMBINE(GPS_SENTENCE_LXWP0, 12): // windspeed (kph)
+      // break;
+  }
+  
+  
   // Set custom values as needed
   for (TinyGPSCustom *p = customCandidates; p != NULL && strcmp(p->sentenceName, customCandidates->sentenceName) == 0 && p->termNumber <= curTermNumber; p = p->next)
     if (p->termNumber == curTermNumber)
