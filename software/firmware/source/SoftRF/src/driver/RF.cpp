@@ -829,7 +829,11 @@ static bool sx1262_probe()
   hal_pin_rst(2); // configure RST pin floating!
   hal_waitUntil(os_getTime()+ms2osticks(5)); // wait 5ms
 
+  v = sx1262_ReadReg(0x0740);
+  Serial.printf("LoRa Sync Word MSB: %02x\n", v);
+  
   v = sx1262_ReadReg(REG_LORASYNCWORDLSB);
+  Serial.printf("LoRa Sync Word LSB: %02x\n", v);
 
   pinMode(lmic_pins.nss, INPUT);
   SPI.end();
