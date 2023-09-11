@@ -3397,23 +3397,22 @@ uint16_t read_heltec_voltage() {
 
   digitalWrite(VBATT_GPIO, LOW);              // ESP32 Lora v2.1 reads on GPIO37 when GPIO21 is low
   delay(ADC_READ_STABILIZE);                  // let GPIO stabilize
-#if defined(CONFIG_IDF_TARGET_ESP32S2) 
-  pinMode(ADC1_CHANNEL_1, OPEN_DRAIN);        // ADC GPIO37
-  reading = adc1_get_raw(ADC1_CHANNEL_1);
-  pinMode(ADC1_CHANNEL_1, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider)
-#elif defined(CONFIG_IDF_TARGET_ESP32S3) 
+#if defined(CONFIG_IDF_TARGET_ESP32S3) 
   pinMode(ADC1_CHANNEL_0, OPEN_DRAIN);        // ADC GPIO01
   reading = adc1_get_raw(ADC1_CHANNEL_0);
   pinMode(ADC1_CHANNEL_0, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider)
 #else
-  pinMode(ADC2_CHANNEL_4, OPEN_DRAIN);        // ADC GPIO13
-  adc2_get_raw(ADC2_CHANNEL_4,ADC_WIDTH_BIT_12,(int*)&reading);
-  pinMode(ADC2_CHANNEL_4, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider
+  // Use this for V2
+  // pinMode(ADC2_CHANNEL_4, OPEN_DRAIN);        // ADC GPIO13
+  // adc2_get_raw(ADC2_CHANNEL_4, ADC_WIDTH_BIT_12, (int*)&reading);
+  // pinMode(ADC2_CHANNEL_4, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider
+  // Use this for V2.1
+  // pinMode(ADC1_CHANNEL_1, OPEN_DRAIN);        // ADC GPIO37
+  reading = adc1_get_raw(ADC1_CHANNEL_1);
+  // pinMode(ADC1_CHANNEL_1, INPUT);             // Disconnect ADC before GPIO goes back high so we protect ADC from direct connect to VBATT (i.e. no divider)
 #endif
 
   uint16_t voltage = esp_adc_cal_raw_to_voltage(reading, adc_chars);  
-  // voltage*=VOLTAGE_DIVIDER;
-
   return voltage;
 }
 
@@ -3427,29 +3426,32 @@ static void ESP32_Battery_setup()
 
     /* T-Beam v08+, T-Beam Supreme and T-Watch have PMU */
 
-  } else if (esp32_board == ESP32_HELTEC_TRACKER ||
-    esp32_board == ESP32_HELTEC_LORA_V2) {
-        
 #if defined(CONFIG_IDF_TARGET_ESP32) 
+  } else if (esp32_board == ESP32_HELTEC_LORA_V2) {
+          // Use this for older V2.0 with VBatt reading wired to GPIO13
+          // adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
+          // esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_2, ADC_ATTEN_DB_6, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
+          // adc2_config_channel_atten(ADC2_CHANNEL_4, ADC_ATTEN_DB_6);
+          // Use this for V2.1
           adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
           esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_6, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
           adc1_config_width(ADC_WIDTH_BIT_12);
           adc1_config_channel_atten(ADC1_CHANNEL_1, ADC_ATTEN_DB_6);
-#elif defined(CONFIG_IDF_TARGET_ESP32S3) 
+          pinMode(VBATT_GPIO, OUTPUT);
+          digitalWrite(VBATT_GPIO, LOW);              // ESP32 Lora v2.1 reads on GPIO37 when GPIO21 is low
+          delay(ADC_READ_STABILIZE);                  // let GPIO stab      
+#endif
+#if defined(CONFIG_IDF_TARGET_ESP32S3) 
+  } else if (esp32_board == ESP32_HELTEC_TRACKER) {
           adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
           esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_6, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
           adc1_config_width(ADC_WIDTH_BIT_12);
           adc1_config_channel_atten(ADC1_CHANNEL_0, ADC_ATTEN_DB_6);
-#else
-          // Use this for older V2.0 with VBatt reading wired to GPIO13
-          adc_chars = (esp_adc_cal_characteristics_t*)calloc(1, sizeof(esp_adc_cal_characteristics_t));
-          esp_adc_cal_value_t val_type = esp_adc_cal_characterize(ADC_UNIT_2, ADC_ATTEN_DB_6, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
-          adc2_config_channel_atten(ADC2_CHANNEL_4, ADC_ATTEN_DB_6);
-#endif
-
+          
           pinMode(VBATT_GPIO, OUTPUT);
           digitalWrite(VBATT_GPIO, LOW);              // ESP32 Lora v2.1 reads on GPIO37 when GPIO21 is low
           delay(ADC_READ_STABILIZE);                  // let GPIO stab      
+#endif
   } else {
 #if defined(CONFIG_IDF_TARGET_ESP32)
     calibrate_voltage(hw_info.model == SOFTRF_MODEL_PRIME_MK2 ||
