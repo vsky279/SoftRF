@@ -266,7 +266,7 @@ char *Root_content() {
 
 char *Settings_content() {
 
-  size_t size = 5480;
+  size_t size = 5503;
   char *offset;
   size_t len = 0;
   char *Settings_temp = (char *) malloc(size);
